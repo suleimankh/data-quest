@@ -725,6 +725,34 @@ Production
 This would also allow pipeline configuration, permissions, and
 environment-specific parameters to be managed as code.
 
+
+## Retrospective
+
+The most time-consuming part of the Quest was not the transformation logic itself, but getting the development environment into a reliable state.
+
+I was working from a new laptop, and Visual Studio Code was intermittently freezing, which added some friction while setting up and organizing the local development workflow.
+
+I also had not used Databricks Free Edition in roughly two years, and the environment has changed since I last worked with it. In particular, I initially expected to retrieve the BLS and Data USA sources directly from Databricks. When those requests failed, I spent time determining whether the issue was related to the BLS `User-Agent` requirement, my request implementation, DNS, or the Databricks environment itself.
+
+Testing the endpoints independently showed that the failures occurred during DNS resolution and affected multiple external domains, while allowed domains such as `pypi.org` remained reachable. This confirmed that the issue was the current Free Edition outbound-network restriction rather than the ingestion code or the expected BLS `403`.
+
+After confirming the limitation with Rearc, I adjusted the architecture by separating source extraction from Databricks processing: the extraction logic remains programmatic and reproducible, while the resulting files are landed in the Unity Catalog Volume and the Volume becomes the durable source for the Lakeflow pipeline.
+
+Although the environment troubleshooting took some additional time, it reinforced an important engineering principle: when a pipeline fails at an integration boundary, isolate the failure layer before changing application logic. In this case, distinguishing HTTP authorization, DNS/network connectivity, source extraction, and Spark processing prevented an infrastructure limitation from unnecessarily complicating the data pipeline design.
+
+## Submission and Next Steps
+
+I am submitting the completed core Quest at this point so the required solution is available for review without delaying submission for optional enhancements.
+
+I plan to continue working on the bonus items after the core submission. My next areas of exploration are:
+
+- Building a Genie space or dashboard on top of the Gold layer so a non-technical stakeholder can explore the results.
+- Adding Unity Catalog permissions appropriate for a read-only analyst consuming Gold datasets.
+- Packaging and deploying the pipeline with Databricks Asset Bundles rather than relying on manual workspace configuration.
+- Evaluating additional production-readiness improvements where they add meaningful value.
+
+I am intentionally treating these as incremental enhancements on top of the submitted core solution rather than making optional work a dependency for completing the assessment.
+
 ## Design Principle
 
 The central architectural principle throughout the solution is:
