@@ -2,7 +2,7 @@ resources:
   pipelines:
     bls_pipeline:
       name: bls_pipeline_${bundle.target}
-      target: ${var.catalog_prefix}rearc.bls
+      target: bls
       catalog: ${var.catalog_prefix}rearc
       
       photon: true

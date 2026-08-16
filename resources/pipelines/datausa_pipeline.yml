@@ -2,7 +2,7 @@ resources:
   pipelines:
     datausa_pipeline:
       name: datausa_pipeline_${bundle.target}
-      target: ${var.catalog_prefix}rearc.datausa
+      target: datausa
       catalog: ${var.catalog_prefix}rearc
       
       photon: true

@@ -198,6 +198,65 @@ env:
 **Solution:**
 GitHub Secrets are not configured. Follow the **"Required GitHub Secrets Setup"** section above or see `GITHUB_SECRETS_SETUP.md` for detailed instructions.
 
+### Pipeline Target: "Cannot contain periods"
+
+**Error:**
+```
+Error: CreatePipeline target_schema_name "catalog.schema" is not a valid name. 
+Valid names cannot contain spaces, periods, forward slashes, or control characters.
+```
+
+**Cause:**
+The `target` field expects ONLY the schema name, not `catalog.schema`.
+
+**Solution:**
+Separate catalog and schema into two distinct fields:
+
+```yaml
+resources:
+  pipelines:
+    my_pipeline:
+      catalog: my_catalog          # ← Catalog name
+      target: my_schema            # ← Schema name ONLY (no periods!)
+      serverless: true
+```
+
+**Incorrect:**
+```yaml
+target: rearc.bls                  # ❌ Contains period
+```
+
+**Correct:**
+```yaml
+catalog: rearc
+target: bls                        # ✅ Schema name only
+```
+
+### Serverless Pipeline: "Must specify a catalog"
+
+**Error:**
+```
+Error: cannot create resources.pipelines.<pipeline_name>: You must specify a 
+catalog when using serverless compute. (400 INVALID_PARAMETER_VALUE)
+```
+
+**Solution:**
+Serverless Spark Declarative Pipelines require a `catalog` field. Add it to each pipeline YAML:
+
+```yaml
+resources:
+  pipelines:
+    my_pipeline:
+      name: my_pipeline_${bundle.target}
+      target: my_catalog.my_schema.my_table
+      catalog: my_catalog                    # ← ADD THIS
+      
+      photon: true
+      serverless: true
+```
+
+The `catalog` field should match the catalog in your `target` path.
+
 ### Bundle deployment fails
 ```bash
 # Check bundle validation
