@@ -10,10 +10,8 @@ resources:
       channel: CURRENT
       
       libraries:
-        - notebook:
-            path: ${var.git_source_path}/bls_pipeline/transformations/bronze.py
-        - notebook:
-            path: ${var.git_source_path}/bls_pipeline/transformations/silver.py
+        - glob:
+            include: ${var.git_source_path}/bls_pipeline/transformations/**
       
       configuration:
         pipeline.runAsUser: ${workspace.current_user.userName}

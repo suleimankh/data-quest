@@ -198,45 +198,47 @@ env:
 **Solution:**
 GitHub Secrets are not configured. Follow the **"Required GitHub Secrets Setup"** section above or see `GITHUB_SECRETS_SETUP.md` for detailed instructions.
 
-### Pipeline Libraries: "Failed to load Zip notebook"
+### Pipeline Libraries: "Failed to load notebook"
 
 **Error:**
 ```
-Failed to load Zip notebook '/Workspace/Repos/.../transformations'. 
+Failed to load notebook '/Workspace/Repos/.../transformations/bronze.py'. 
 Only SQL and Python notebooks are supported currently.
 ```
 
 **Cause:**
-The `libraries` configuration is pointing to a directory instead of individual notebook files.
+For Python files in Git repos (not Databricks notebooks), use `glob` patterns instead of `notebook` or `file` types.
 
 **Solution:**
-List each notebook file individually in the libraries array:
+Use glob patterns to include all transformation files:
 
 ```yaml
 resources:
   pipelines:
     my_pipeline:
       libraries:
-        - notebook:
-            path: ${var.git_source_path}/my_pipeline/transformations/bronze.py
-        - notebook:
-            path: ${var.git_source_path}/my_pipeline/transformations/silver.py
+        - glob:
+            include: ${var.git_source_path}/my_pipeline/transformations/**
 ```
+
+**Why glob?**
+- ✅ Works with plain Python files (.py) in Git repos
+- ✅ Automatically includes all files in the directory
+- ✅ No need to list individual files
+- ✅ Matches the working pattern from manual pipeline creation
 
 **Incorrect:**
 ```yaml
 libraries:
   - notebook:
-      path: ${var.git_source_path}/my_pipeline/transformations  # ❌ Directory
+      path: ${var.git_source_path}/my_pipeline/transformations/bronze.py  # ❌ Fails for .py files
 ```
 
 **Correct:**
 ```yaml
 libraries:
-  - notebook:
-      path: ${var.git_source_path}/my_pipeline/transformations/bronze.py
-  - notebook:
-      path: ${var.git_source_path}/my_pipeline/transformations/silver.py
+  - glob:
+      include: ${var.git_source_path}/my_pipeline/transformations/**  # ✅ Works!
 ```
 
 ### Pipeline Target: "Cannot contain periods"
