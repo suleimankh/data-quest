@@ -1,130 +1,149 @@
-# Rearc Data Quest --- Process 1st Question
+# Rearc Data Quest --- PROCESS.md
 
 ## Architecture
 
-I modeled the solution as a **Lakeflow Spark Declarative Pipeline**
-using a Bronze → Silver → Gold architecture.
+I modeled the solution as three Lakeflow Spark Declarative Pipelines
+with source-oriented Bronze/Silver layers and a separate business-facing
+analytics layer.
 
 ``` text
-External Sources
-      ↓
-Source Extraction
-      ↓
-Unity Catalog Volume
-      ↓
-Auto Loader
-      ↓
-Bronze Streaming Tables
-      ↓
-Silver Streaming Tables
-      ↓
-Gold Materialized Views
+BLS                                  Data USA
+ ↓                                      ↓
+Programmatic extraction            Programmatic extraction
+ ↓                                      ↓
+/Volumes/rearc/bls/raw/             /Volumes/rearc/datausa/raw/
+ ↓                                      ↓
+BLS Lakeflow Pipeline               Data USA Lakeflow Pipeline
+ ↓                                      ↓
+Bronze streaming tables            bronze_population
+ ↓                                      ↓
+Silver streaming tables            silver_population
+          \                          /
+           \                        /
+            └── Analytics Pipeline ┘
+                       ↓
+        rearc_analytics.population_analytics
+                       ↓
+             Gold materialized views
 ```
 
-The main design goal was to separate **source acquisition, raw
-ingestion, data quality, and business logic**, while keeping the
-implementation proportional to the size and requirements of the
-assessment.
+The final catalog organization is:
 
-The pipeline is declarative rather than manually orchestrated. Bronze,
-Silver, and Gold datasets and their dependencies are declared using the
-Spark Pipelines API, while Lakeflow manages the dependency graph,
-execution order, streaming state, and materialization.
+``` text
+rearc
+├── datausa
+│   ├── Volume: raw
+│   ├── bronze_population
+│   └── silver_population
+│
+└── bls
+    ├── Volume: raw
+    ├── bronze_bls_data
+    ├── bronze_bls_series
+    ├── bronze_bls_measure
+    ├── bronze_bls_sector
+    ├── silver_bls_data
+    ├── silver_bls_series
+    ├── silver_bls_measure
+    └── silver_bls_sector
+
+rearc_analytics
+└── population_analytics
+    ├── gold_population_stats
+    ├── gold_best_year_by_series
+    └── gold_series_population
+```
+
+I separated Data USA and BLS because they are independent source systems
+with different formats, metadata, ingestion behavior, and data-quality
+contracts. Gold is separated from source-specific processing because it
+represents business-facing analytics and includes cross-source joins.
+
+The transformations themselves are declarative. I define the desired
+datasets and dependencies using `pyspark.pipelines`, while Lakeflow
+manages execution, dependency ordering, streaming state, and
+materialization.
 
 ## Source Ingestion
 
-The Quest uses two external sources:
-
-1.  BLS productivity time-series data.
-2.  Data USA population API.
-
 ### BLS
 
-The BLS source directory is discovered programmatically rather than by
-hardcoding individual filenames.
+The BLS productivity directory is discovered programmatically rather
+than by hardcoding individual filenames. The extraction therefore adapts
+when BLS adds or removes files.
 
-BLS also requires automated clients to provide information that can be
-used to identify/contact the owner of the request. I therefore include
-my contact information in the `User-Agent` header:
+BLS requires automated clients to provide information that can be used
+to contact the owner. Requests therefore include contact information in
+the `User-Agent` header:
 
 ``` python
-headers = {
-    "User-Agent": "suleimankhader@googlemail.com"
-}
+headers = {"User-Agent": "publicRepo@example.com"}
 ```
 
-This follows the BLS data-access policy and addresses the
-`403 Forbidden` behavior described in the Quest.
+The full BLS directory is landed into `/Volumes/rearc/bls/raw/`. The
+complete source directory is retained as required by the Quest, even
+though only the files needed by the analytical model are promoted into
+Bronze tables.
+
+### Data USA
+
+The population API response is retrieved programmatically and landed
+into `/Volumes/rearc/datausa/raw/`.
+
+I preserve the complete API response rather than extracting only the
+fields required for Question 1.
 
 ### Databricks Free Edition Network Limitation
 
-While implementing the source extraction in Databricks Free Edition, I
-encountered an environment-specific restriction.
+While implementing source extraction, I found that my Databricks Free
+Edition environment restricted outbound DNS/network access to the
+required BLS and Data USA domains.
 
-Outbound DNS access to both the BLS and Data USA domains was
-unavailable. I verified the behavior against multiple external domains
-and confirmed that the requests were failing during DNS resolution,
-before an HTTP request could reach BLS.
+I isolated this by testing multiple external hosts. Allowed destinations
+such as `pypi.org` resolved successfully, while BLS, Data USA, and other
+external domains failed during DNS resolution.
 
-This was therefore separate from the expected BLS `403` scenario. The
-correct `User-Agent` was implemented, but it could not affect a request
-that never reached the provider.
+This was different from the expected BLS `403 Forbidden` case: the HTTP
+request never reached BLS, so the correct `User-Agent` could not solve
+the DNS restriction.
 
-After discussing the limitation with Rearc, I used the agreed approach:
+After confirming the issue with Rearc, I used the agreed workaround:
 
--   Keep the programmatic extraction code in the repository.
--   Execute the source retrieval outside the restricted Databricks
+1.  Keep the complete programmatic extraction code in the repository.
+2.  Execute source retrieval outside the restricted Databricks
     environment.
--   Land the resulting raw files into a Unity Catalog Volume.
--   Treat the Volume as the durable source boundary for the Spark
-    Declarative Pipeline.
+3.  Land the resulting files into the Unity Catalog Volumes.
+4.  Treat those Volumes as the durable source boundary for the Lakeflow
+    pipelines.
 
-This also decouples downstream pipeline execution from external network
-availability.
+## Raw Landing and Rerun Strategy
 
-## Raw Landing Strategy
-
-Raw source extracts are written to:
-
-``` text
-/Volumes/rearc/data-quest/step1_folder/
-```
-
-Rather than overwriting an existing file when the source is retrieved
-again, the extraction process adds a timestamp to the filename.
-
-For example:
+I use timestamped filenames for repeated source extractions rather than
+overwriting existing files, for example:
 
 ``` text
 population_20260814T120000.json
 population_20260815T120000.json
-population_20260816T120000.json
 ```
 
-I chose this approach because it creates an **append-oriented raw
-history** and works naturally with Auto Loader.
-
-Each extraction has a unique identity, previous source versions remain
-available, and Auto Loader can distinguish a new extraction from a file
-it has already processed.
-
-It also improves auditability, replayability, source lineage,
+This creates an append-oriented raw landing pattern that works naturally
+with Auto Loader and improves auditability, replayability, lineage,
 troubleshooting, and incremental processing.
+
+The extraction timestamp represents when my ingestion process observed
+the source. It is distinct from the business date contained in the data
+and from any provider-side modification timestamp.
 
 ## Bronze Layer
 
 Bronze is responsible for preserving **what arrived**.
 
-I use Auto Loader to incrementally ingest files from the Unity Catalog
-Volume into Bronze streaming tables.
+Both source pipelines use Auto Loader to incrementally ingest files from
+their Unity Catalog Volumes into streaming tables. Auto Loader tracks
+physical files already processed, providing file-level idempotency
+during normal reruns.
 
-Auto Loader tracks which physical files have already been processed,
-which makes normal pipeline reruns idempotent at the file level.
-
-### Preserving the Raw API Structure
-
-For Data USA, I intentionally preserve the original API response rather
-than immediately flattening the population observations.
+### Data USA Bronze
 
 A Data USA response is structured approximately as:
 
@@ -137,111 +156,80 @@ A Data USA response is structured approximately as:
 }
 ```
 
-The actual population observations are contained inside `data`.
-
-Therefore, each timestamped source file effectively represents one
-Bronze snapshot:
+I intentionally preserve this structure in Bronze rather than
+immediately flattening `data`.
 
 ``` text
 population_20260814.json → 1 Bronze snapshot
 population_20260815.json → 1 Bronze snapshot
-population_20260816.json → 1 Bronze snapshot
 ```
 
-The business records are extracted later in Silver:
+Silver later transforms each snapshot:
 
 ``` text
-New source file
-      ↓
-Auto Loader
-      ↓
-1 Bronze snapshot
-      ↓
-explode(data)
-      ↓
-2013 population
-2014 population
-2015 population
-...
-2023 population
+New Bronze row / source file
+             ↓
+        explode(data)
+             ↓
+      2013 population
+      2014 population
+      2015 population
+             ...
+      2023 population
 ```
 
-This distinction is intentional:
+Bronze therefore represents source snapshots, while Silver represents
+individual business records.
 
-**Bronze represents source snapshots.**
+I preserve Databricks `_metadata` in Bronze for physical-file lineage.
+Because Data USA intentionally uses field names such as `Nation ID`,
+Delta column mapping is enabled for the raw table rather than changing
+provider field names in Bronze. Those fields are normalized in Silver.
 
-**Silver represents individual business records.**
+### BLS Bronze
 
-I also preserve Databricks `_metadata` in Bronze so that each snapshot
-retains information about the physical source file, including filename
-and modification information.
+BLS files are tab-separated and some source headers contain surrounding
+whitespace. That whitespace is formatting noise and creates invalid
+Delta column names.
+
+I normalize only the BLS header whitespace before writing Bronze:
+
+``` python
+def clean_column_names(df):
+    return df.toDF(*[c.strip() for c in df.columns])
+```
+
+The underlying raw files remain unchanged.
+
+The BLS Bronze layer models the observation, series, measure, and sector
+datasets needed downstream. Other BLS files remain in the raw Volume.
 
 ## Schema Evolution
 
-Bronze uses Auto Loader with:
+Data USA Bronze uses:
 
 ``` python
 .option("cloudFiles.inferColumnTypes", "true")
 .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
 ```
 
-### Why `inferColumnTypes`?
+`inferColumnTypes` preserves meaningful primitive source types.
+`addNewColumns` allows additive source evolution to be captured instead
+of silently discarding newly introduced fields.
 
-The JSON contains meaningful primitive types such as years and
-population values.
-
-Allowing Auto Loader to infer these types preserves more of the source
-semantics than initially representing every field as a string.
-
-Silver still owns the final analytical contract and explicitly
-normalizes the fields required downstream.
-
-### Why `addNewColumns`?
-
-External APIs evolve.
-
-If Data USA adds another field to its response, I do not want the new
-information to be silently discarded simply because the original Bronze
-schema did not contain it.
-
-`addNewColumns` allows Auto Loader to evolve the Bronze schema to
-preserve additive source changes.
-
-``` text
-External source
-      ↓
-Bronze
-Flexible source representation
-Additive schema evolution
-      ↓
-Silver
-Controlled analytical contract
-      ↓
-Gold
-Stable business outputs
-```
-
-This does not mean every schema change is automatically considered safe.
-A renamed required field or an incompatible change to `Population`
-should be detected and handled rather than automatically accepted.
-
-Bronze is intentionally flexible; Silver is intentionally stricter.
+Bronze is intentionally flexible; Silver owns the stable analytical
+contract. Missing required fields, renames, or incompatible type changes
+should be surfaced at the trusted-data boundary.
 
 ## Silver Layer
 
-Silver is responsible for producing **trusted, normalized business
-records**.
+Silver is responsible for establishing **what can be trusted**.
 
-For the population dataset, Silver:
+### Data USA Silver
 
--   Explodes the nested `data` array.
--   Selects the required business fields.
--   Normalizes source column names.
--   Applies analytical data types.
--   Enforces data-quality expectations.
--   Deduplicates using the business key.
-
-The resulting population schema is intentionally simple:
+Silver explodes the nested `data` array, normalizes provider field
+names, casts analytical types, applies expectations, and deduplicates on
+the business key.
 
 ``` text
 nation_id     STRING
@@ -250,539 +238,255 @@ year          INT
 population    BIGINT
 ```
 
-### Data Quality Expectations
+Expectations include non-null `nation_id`, `year`, and `population`.
 
-The Quest specifically asks for expectations enforcing basic data
-quality.
+### BLS Silver
 
-I place these expectations in Silver rather than Bronze because the
-layers have different responsibilities.
+BLS Silver normalizes the observation and reference datasets. The
+observation business key is `series_id + year + period`.
 
-Bronze asks:
+Expectations enforce required fields including `series_id`, `year`,
+`period`, and `value`.
 
-> What did the source provide?
-
-Silver asks:
-
-> Is this record valid enough to trust analytically?
-
-For example:
-
-``` text
-year IS NOT NULL
-population IS NOT NULL
-```
-
-This prevents invalid records from propagating into Gold.
+Series, measure, and sector reference data are kept separately so Gold
+can construct human-readable labels without carrying unnecessary
+raw-source columns.
 
 ## File-Level Idempotency vs. Business-Level Deduplication
 
-There are two different forms of duplicate protection in this
-architecture.
+Auto Loader answers: **Have I already processed this physical file?**
 
-Auto Loader answers:
+Silver answers: **Have I already processed this business record?**
 
-> Have I already processed this physical file?
+Two timestamped snapshots are valid different files, so Auto Loader
+should process both. After `explode(data)`, however, Silver may see the
+same `nation_id + year` keys again.
 
-Silver answers:
-
-> Have I already processed this business key?
-
-For example:
-
-``` text
-population_20260814.json
-        ↓
-2013
-2014
-...
-2023
-
-population_20260815.json
-        ↓
-2013
-2014
-...
-2023
-```
-
-These are two valid physical source snapshots, so Auto Loader should
-ingest both.
-
-However, after `explode(data)`, Silver sees repeated business keys:
-
-``` text
-nation_id + year
-```
-
-For the assessment, Silver therefore uses:
+For the assessment, Silver uses:
 
 ``` python
 .dropDuplicates(["nation_id", "year"])
 ```
 
-This prevents repeated observations from propagating into Gold.
+to prevent repeated observations from propagating downstream.
 
-## Deduplication vs. Source Corrections
+## Deduplication vs. Corrections
 
-Streaming deduplication is deliberately simple, but it is important to
-recognize its limitation.
+Simple deduplication is not CDC.
 
-Suppose two snapshots contain:
+If one snapshot contains `2023 → 334,914,895` and a later snapshot
+contains `2023 → 335,000,000`, the latter may be a legitimate
+correction. `dropDuplicates` does not express that latest-version rule.
 
-``` text
-Snapshot 1:
-2023 → 334,914,895
+I considered making Silver a materialized view over all Bronze history
+and using a window ordered by source timestamp with `row_number()` to
+retain the latest version. That would correctly model latest-version
+resolution, but I considered it unnecessary complexity for this supplied
+dataset.
 
-Snapshot 2:
-2023 → 335,000,000
-```
-
-The second value may represent a legitimate correction.
-
-Both records have the same business key:
-
-``` text
-nation_id + year
-```
-
-`dropDuplicates` does not represent the business rule that the latest
-authoritative version should replace the previous value. Deduplication
-and Change Data Capture are therefore different problems.
-
-### Alternative Considered: Materialized Silver + Window Ranking
-
-I considered making Silver a materialized view and reading the complete
-Bronze history using:
-
-``` python
-spark.read.table("bronze_population")
-```
-
-I could then use a window:
-
-``` text
-PARTITION BY nation_id, year
-ORDER BY source_timestamp DESC
-```
-
-and `row_number()` to deterministically retain the newest version.
-
-Conceptually:
-
-``` text
-All Bronze snapshots
-       ↓
-Partition by nation + year
-       ↓
-Order by source timestamp DESC
-       ↓
-row_number = 1
-       ↓
-Latest version
-```
-
-This would correctly handle historical corrections.
-
-I decided not to introduce that additional complexity for this
-assessment because **the source extraction and landing process is under
-our control**.
-
-Data is pulled deliberately, each extraction receives a unique
-timestamped filename, and files are landed into the Volume in a
-controlled sequence.
-
-Silver therefore processes new Bronze snapshots incrementally in that
-same controlled environment.
-
-For the supplied dataset, streaming business-key deduplication provides
-the required behavior while preserving a simple and efficient:
-
-``` text
-Bronze Streaming Table
-        ↓
-Silver Streaming Table
-        ↓
-Gold Materialized View
-```
-
+For this assessment, source extraction and landing are controlled:
+extractions are deliberate, uniquely timestamped, and landed in a
+controlled sequence. Keeping Silver streaming preserves a simple and
+efficient Bronze streaming → Silver streaming → Gold materialized-view
 architecture.
 
-This is a deliberate trade-off rather than an assumption that
-`dropDuplicates` provides CDC semantics.
+For an asynchronous or uncontrolled source such as Kafka, I would not
+rely on arrival order. I would preserve an explicit source/event
+timestamp or sequence and use CDC/upsert semantics.
 
-### What I Would Do for an Uncontrolled Source
+## Gold / Analytics Layer
 
-I would make a different decision if the source were asynchronous or
-outside our control.
+Gold represents **what the business needs**.
 
-For example, with Kafka:
+Gold is isolated in `rearc_analytics.population_analytics` and reads
+trusted Silver datasets using fully qualified Unity Catalog names:
 
-``` text
-Event A: version 1
-Event B: version 3
-Event C: version 2  ← arrives late
+``` python
+spark.read.table("rearc.datausa.silver_population")
+spark.read.table("rearc.bls.silver_bls_data")
 ```
 
-Processing order does not necessarily represent business order.
+Gold uses materialized views because the outputs involve aggregation,
+ranking, and cross-source joins.
 
-In that environment I would not depend on arrival order. Instead, I
-would preserve an explicit event/source version or timestamp and use
-CDC/upsert semantics:
+The Gold layer answers:
 
-``` text
-Bronze append stream
-        ↓
-Business key
-nation_id + year
-        ↓
-Sequence by
-source/event timestamp
-        ↓
-CDC / upsert
-        ↓
-Silver current state
-```
-
-That allows the authoritative version to be determined from source
-semantics rather than processing order.
-
-## Gold Layer
-
-Gold is responsible for producing **business-ready analytical outputs**.
-
-I use materialized views for Gold because the requested outputs involve
-aggregations, ranking, and joins over trusted Silver data rather than
-simple append-only event processing.
-
-The Gold layer directly answers the three questions in the Quest:
-
-1.  Mean and standard deviation of annual US population from 2013--2018.
-2.  Best year for every BLS `series_id`, including a human-readable
-    description.
-3.  Annual values for `PRS30006032 / Q01` joined with population where
-    available.
-
-This keeps provider-specific structures and transformation details out
-of the final analytical interface.
+1.  Mean and standard deviation of annual US population from 2013--2018
+    inclusive.
+2.  Best year for every BLS `series_id`, based on the largest sum of
+    quarterly values, with a human-readable label.
+3.  `PRS30006032 / Q01` values by year joined with that year's US
+    population where available.
 
 ## PySpark vs. Spark SQL
 
-The Quest asks for each analytical question to be implemented once in
-PySpark and once in Spark SQL.
+The Quest asks for each analytical question in both PySpark and Spark
+SQL.
 
-I selected **PySpark as the primary implementation feeding the Gold
-tables**.
-
-PySpark fits naturally with the rest of the pipeline implementation and
-provides a clean programmatic interface for DataFrame transformations,
-reusable logic, window operations, joins and aggregations, and
-integration with the Spark Pipelines API.
+I selected **PySpark as the primary implementation feeding Gold**
+because it fits naturally with the pipeline code and provides a clean
+interface for DataFrame transformations, joins, aggregations, windows,
+and reusable logic.
 
 Each analytical question is also implemented independently in Spark SQL
-as a documented alternative.
+as a documented alternative. The goal is to demonstrate fluency in both
+APIs, not maintain two competing production implementations.
 
-The objective is to demonstrate equivalent fluency in both APIs, not to
-maintain two competing production implementations of the same business
-logic.
+## Rerun and Resiliency
 
-In a production system, I would normally select one authoritative
-implementation per transformation to avoid maintaining duplicated
-business logic.
+The solution protects reruns at multiple levels:
 
-## Rerun and Resiliency Strategy
+-   Unity Catalog Volumes provide a durable source boundary.
+-   Timestamped source extracts avoid overwriting raw history.
+-   Auto Loader tracks physical files already processed.
+-   Silver applies business-key deduplication.
 
-The architecture handles reruns at multiple levels.
-
-### 1. Durable Landing
-
-The Unity Catalog Volume separates external source acquisition from
-pipeline processing.
-
-Once the source data has been landed, the pipeline can rerun without
-depending on BLS or Data USA being available.
-
-### 2. Immutable/Timestamped Source Extracts
-
-New extractions receive unique filenames rather than overwriting
-previous raw data:
-
-``` text
-population_20260814T120000.json
-population_20260815T120000.json
-```
-
-This preserves raw history and provides clear source versions.
-
-### 3. Auto Loader File Tracking
-
-Auto Loader maintains state about files that have already been
-processed.
-
-A normal pipeline restart therefore does not repeatedly ingest the same
-physical file.
-
-### 4. Silver Business-Key Deduplication
-
-Different source snapshots may contain the same business records.
-
-Silver prevents repeated business keys from propagating to Gold.
-
-For production data where existing values can legitimately be corrected,
-this would evolve from simple deduplication to explicit CDC/upsert
-semantics.
+For a production source that publishes corrections, I would evolve
+business-key deduplication into deterministic CDC/upsert behavior.
 
 # Trade-offs and Production Considerations
 
-The Quest dataset is small, so I intentionally avoided adding
-infrastructure or complexity that would provide little practical value
-at this scale.
-
-For a real client implementation, I would revisit the following areas.
-
 ## Schema Drift
 
-Bronze allows additive schema evolution using `addNewColumns`.
+Bronze tolerates additive schema evolution, while Silver should enforce
+explicit contracts. In production I would monitor missing required
+columns, incompatible type changes, unexpected fields, null-rate
+changes, and schema-evolution events.
 
-This preserves newly introduced source fields, but it does not make all
-schema changes safe.
+## Pipeline Orchestration
 
-For production, I would maintain explicit Silver data contracts and
-monitor for:
+For the assessment, I kept the three Lakeflow pipelines independently runnable:
 
--   Missing required fields.
--   Incompatible type changes.
--   Unexpected new fields.
--   Null-rate changes.
--   Schema evolution events.
+```text
+Data USA Pipeline ─────┐
+                       ├──→ Analytics Pipeline
+BLS Pipeline ──────────┘
+```
 
-This allows Bronze to remain resilient to source evolution while keeping
-downstream contracts stable.
+I did not add a parent Databricks Workflow/Job to orchestrate all three pipelines. The Data USA and BLS pipelines are independent and can run in parallel, while the Analytics pipeline should run only after both source pipelines complete successfully.
+
+For the Quest, I kept this orchestration manual because another deployment/configuration layer was not necessary to demonstrate the requested Spark Declarative Pipeline functionality.
+
+For production, I would add a parent Databricks Workflow with explicit dependencies:
+
+```text
+             ┌── Data USA Pipeline ──┐
+Start ───────┤                       ├──→ Analytics Pipeline
+             └── BLS Pipeline ───────┘
+```
+
+This would provide dependency-based execution, scheduling, retries, failure handling, centralized monitoring, alerting, and a single operational entry point. I would use dependency-based execution rather than fixed clock times so Analytics starts only after both upstream pipelines report success.
+
+This creates two levels of orchestration:
+
+```text
+Within each pipeline:
+Lakeflow manages table dependencies.
+
+Across pipelines:
+Databricks Workflow manages pipeline dependencies.
+```
 
 ## Data USA Incremental Extraction Limitation
 
-The Data USA API provides time-oriented filtering capabilities, but it
-does not provide a documented change cursor such as:
+I did not find a documented Data USA change cursor equivalent to
+`updated_since=<timestamp>` that returns everything added or modified
+since the previous ingestion.
 
-``` text
-updated_since=<timestamp>
-```
-
-that would allow the ingestion process to ask for every record that
-changed since the previous extraction.
-
-This distinction matters because business time and source-change time
-are different concepts.
-
-For example:
-
-``` text
-Business time:
-Year = 2023
-
-Ingestion time:
-2026-08-15
-
-Source modification time:
-Not exposed as a documented incremental cursor
-```
-
-Retrieving only the latest business year could therefore miss a
+Business time (`Year`), ingestion time, and provider modification time
+are different concepts. Fetching only the latest year could miss a
 correction to an older year.
 
-For the assessment, timestamped snapshots provide a simple and auditable
-solution.
+For production I would consider frequent recent-period ingestion plus
+periodic historical reconciliation, followed by CDC/upsert into Silver.
+If the provider exposed a reliable modification cursor, I would prefer
+it.
 
-For production, I would consider a hybrid strategy:
+## Data Volume and Performance
 
-``` text
-Frequent ingestion
-Latest/recent source periods
-        +
-Periodic historical reconciliation
-        ↓
-Detect historical corrections
-        ↓
-CDC/upsert into Silver
-```
-
-If Data USA exposed a reliable modification timestamp or CDC mechanism
-in the future, I would prefer that mechanism over repeated historical
-reconciliation.
-
-## Data Volume
-
-The current dataset is small enough that straightforward Spark
-transformations are appropriate.
-
-At larger scale, I would evaluate:
-
--   File sizing and compaction.
--   Partitioning or clustering.
--   Shuffle behavior.
--   Join strategies.
--   Incremental processing.
--   Delta optimization.
--   Retention policies.
--   State-store growth.
-
-Optimization decisions would be based on measured workload behavior
-rather than added prematurely.
-
-## Streaming State
-
-Silver currently performs streaming business-key deduplication.
-
-For this dataset, the amount of state is negligible.
-
-For a long-running, high-volume pipeline, unbounded deduplication state
-could become expensive.
-
-Depending on the source semantics, I would evaluate event/extraction
-timestamps, watermarks, bounded deduplication, CDC, or source sequence
-numbers.
+At larger scale I would evaluate file sizing/compaction, clustering or
+partitioning where appropriate, shuffle behavior, join strategies,
+incremental processing, Delta optimization, retention, and
+streaming-state growth.
 
 ## Cost
 
-The assessment dataset is too small for aggressive compute optimization
-to provide meaningful value.
-
-For production, I would evaluate:
-
--   Pipeline execution frequency.
--   Incremental versus full processing.
--   Serverless/compute utilization.
--   Storage growth from historical raw snapshots.
--   Raw-data retention periods.
--   Gold freshness requirements.
--   Business SLAs.
-
-The goal would be to balance data freshness against actual compute and
-storage cost.
+For production I would evaluate pipeline frequency, incremental versus
+full refresh behavior, compute utilization, raw snapshot retention,
+storage growth, freshness requirements, and SLAs.
 
 ## Access Control
 
-For production, I would use Unity Catalog to implement least-privilege
-access.
-
-A typical model would be:
+The catalog separation creates a governance boundary:
 
 ``` text
-Raw / Bronze
-Engineering and ingestion identities
+rearc.datausa / rearc.bls
+Source engineering and controlled consumers
 
-Silver
-Data engineering / controlled consumers
-
-Gold
-Read-only analysts and downstream applications
+rearc_analytics.population_analytics
+Business-facing analytical outputs
 ```
 
-Production pipelines would run under service principals rather than
-individual user identities.
-
-Where necessary, additional row-, column-, or object-level controls
-could be applied to sensitive datasets.
+For production I would use least-privilege Unity Catalog grants and
+service principals. Read-only analysts would normally receive Gold
+access rather than raw-source access.
 
 ## Monitoring and Observability
 
-For a production implementation, I would monitor:
+I would monitor source arrival/freshness, pipeline failures, expectation
+results, schema changes, row-count anomalies, duplicate/correction
+rates, processing latency, Gold freshness, and compute cost.
 
--   Source arrival.
--   Data freshness.
--   Pipeline failures.
--   Expectation results.
--   Schema changes.
--   Row-count anomalies.
--   Duplicate/correction rates.
--   Processing latency.
--   Gold freshness.
--   Compute cost.
+## CI/CD
 
-Alerts would be configured for failures and meaningful data-quality
-changes so issues are detected proactively rather than by downstream
-consumers.
+For production I would version-control pipeline configuration and deploy
+through CI/CD. Databricks Asset Bundles would be a natural option for
+consistent promotion across development, test, and production.
 
-## CI/CD and Deployment
+# Retrospective
 
-For the assessment, the pipeline can be configured directly in
-Databricks.
+The most time-consuming parts of the Quest were environmental and
+platform-related rather than the analytical Spark logic.
 
-For a production client implementation, I would version-control both
-pipeline code and configuration and deploy through CI/CD.
+## Local Development Environment
 
-Databricks Asset Bundles would be a natural option for consistently
-deploying the solution across:
+I was working from a new laptop, and Visual Studio Code intermittently
+froze while I was setting up and organizing the local development
+workflow.
 
-``` text
-Development
-     ↓
-Test / QA
-     ↓
-Production
-```
+## Databricks Free Edition Changes
 
-This would also allow pipeline configuration, permissions, and
-environment-specific parameters to be managed as code.
+I had not worked extensively with Databricks Free Edition for roughly
+two years, and some platform behavior has changed since I last used it.
 
+The first significant issue was outbound network access. I initially
+expected the BLS `403` behavior described in the Quest, but requests
+failed earlier during DNS resolution. Testing each integration boundary
+separately identified the actual problem and prevented unnecessary
+changes to correct request logic.
 
-## Retrospective
+# Submission and Next Steps
 
-The most time-consuming part of the Quest was not the transformation logic itself, but getting the development environment into a reliable state.
+I am submitting the completed core Quest without making optional
+enhancements a dependency for review.
 
-I was working from a new laptop, and Visual Studio Code was intermittently freezing, which added some friction while setting up and organizing the local development workflow.
+I plan to continue exploring bonus items after the core submission,
+including:
 
-I also had not used Databricks Free Edition in roughly two years, and the environment has changed since I last worked with it. In particular, I initially expected to retrieve the BLS and Data USA sources directly from Databricks. When those requests failed, I spent time determining whether the issue was related to the BLS `User-Agent` requirement, my request implementation, DNS, or the Databricks environment itself.
-
-Testing the endpoints independently showed that the failures occurred during DNS resolution and affected multiple external domains, while allowed domains such as `pypi.org` remained reachable. This confirmed that the issue was the current Free Edition outbound-network restriction rather than the ingestion code or the expected BLS `403`.
-
-After confirming the limitation with Rearc, I adjusted the architecture by separating source extraction from Databricks processing: the extraction logic remains programmatic and reproducible, while the resulting files are landed in the Unity Catalog Volume and the Volume becomes the durable source for the Lakeflow pipeline.
-
-Although the environment troubleshooting took some additional time, it reinforced an important engineering principle: when a pipeline fails at an integration boundary, isolate the failure layer before changing application logic. In this case, distinguishing HTTP authorization, DNS/network connectivity, source extraction, and Spark processing prevented an infrastructure limitation from unnecessarily complicating the data pipeline design.
-
-## Submission and Next Steps
-
-I am submitting the completed core Quest at this point so the required solution is available for review without delaying submission for optional enhancements.
-
-I plan to continue working on the bonus items after the core submission. My next areas of exploration are:
-
-- Building a Genie space or dashboard on top of the Gold layer so a non-technical stakeholder can explore the results.
-- Adding Unity Catalog permissions appropriate for a read-only analyst consuming Gold datasets.
-- Packaging and deploying the pipeline with Databricks Asset Bundles rather than relying on manual workspace configuration.
-- Evaluating additional production-readiness improvements where they add meaningful value.
-
-I am intentionally treating these as incremental enhancements on top of the submitted core solution rather than making optional work a dependency for completing the assessment.
+-   A Genie space or dashboard over Gold for non-technical users.
+-   Unity Catalog access controls for a read-only Gold consumer.
+-   Databricks Asset Bundles for deployment.
+-   Additional production-readiness improvements where they provide
+    meaningful value.
 
 ## Design Principle
 
-The central architectural principle throughout the solution is:
+The architecture is guided by a simple separation of responsibilities:
 
 > **Bronze preserves what arrived. Silver establishes what can be
 > trusted. Gold provides what the business needs.**
 
-The resulting architecture remains intentionally simple:
-
-``` text
-External Sources
-       ↓
-Timestamped Raw Files
-       ↓
-Unity Catalog Volume
-       ↓
-Auto Loader
-       ↓
-Bronze Streaming Tables
-Raw source + lineage
-       ↓
-Silver Streaming Tables
-Types + quality + business keys
-       ↓
-Gold Materialized Views
-Business answers
-```
-
-For the assessment, this provides a simple, incremental, and explainable
-solution without introducing production-scale complexity where it is not
-required. At the same time, the architecture provides clear extension
-points for CDC, stronger schema contracts, access controls, monitoring,
-and CI/CD if the same pattern were deployed for a real client.
+This keeps the assessment implementation incremental and explainable
+while leaving clear extension points for stronger CDC, schema contracts,
+governance, monitoring, and deployment automation in a production
+environment.
