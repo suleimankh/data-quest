@@ -198,6 +198,47 @@ env:
 **Solution:**
 GitHub Secrets are not configured. Follow the **"Required GitHub Secrets Setup"** section above or see `GITHUB_SECRETS_SETUP.md` for detailed instructions.
 
+### Pipeline Libraries: "Failed to load Zip notebook"
+
+**Error:**
+```
+Failed to load Zip notebook '/Workspace/Repos/.../transformations'. 
+Only SQL and Python notebooks are supported currently.
+```
+
+**Cause:**
+The `libraries` configuration is pointing to a directory instead of individual notebook files.
+
+**Solution:**
+List each notebook file individually in the libraries array:
+
+```yaml
+resources:
+  pipelines:
+    my_pipeline:
+      libraries:
+        - notebook:
+            path: ${var.git_source_path}/my_pipeline/transformations/bronze.py
+        - notebook:
+            path: ${var.git_source_path}/my_pipeline/transformations/silver.py
+```
+
+**Incorrect:**
+```yaml
+libraries:
+  - notebook:
+      path: ${var.git_source_path}/my_pipeline/transformations  # ❌ Directory
+```
+
+**Correct:**
+```yaml
+libraries:
+  - notebook:
+      path: ${var.git_source_path}/my_pipeline/transformations/bronze.py
+  - notebook:
+      path: ${var.git_source_path}/my_pipeline/transformations/silver.py
+```
+
 ### Pipeline Target: "Cannot contain periods"
 
 **Error:**

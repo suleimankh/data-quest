@@ -11,7 +11,9 @@ resources:
       
       libraries:
         - notebook:
-            path: ${var.git_source_path}/datausa_pipeline/transformations
+            path: ${var.git_source_path}/datausa_pipeline/transformations/bronze.py
+        - notebook:
+            path: ${var.git_source_path}/datausa_pipeline/transformations/silver_population.py
       
       configuration:
         pipeline.runAsUser: ${workspace.current_user.userName}

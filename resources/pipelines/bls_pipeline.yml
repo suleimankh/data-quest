@@ -11,7 +11,9 @@ resources:
       
       libraries:
         - notebook:
-            path: ${var.git_source_path}/bls_pipeline/transformations
+            path: ${var.git_source_path}/bls_pipeline/transformations/bronze.py
+        - notebook:
+            path: ${var.git_source_path}/bls_pipeline/transformations/silver.py
       
       configuration:
         pipeline.runAsUser: ${workspace.current_user.userName}
