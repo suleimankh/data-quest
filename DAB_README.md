@@ -122,9 +122,40 @@ The repository includes GitHub Actions workflows that automatically:
 - Deploy to development on push to `develop` branch
 - Deploy to production on push to `main` branch
 
-### Required GitHub Secrets
-- `DATABRICKS_HOST`: `https://dbc-c2ce80d3-dded.cloud.databricks.com`
-- `DATABRICKS_TOKEN`: Your Databricks personal access token
+### ⚠️ Required GitHub Secrets Setup
+
+**BEFORE the CI/CD workflow can run**, you MUST configure these GitHub Repository Secrets:
+
+#### Step 1: Generate Databricks Personal Access Token
+
+1. Go to Databricks workspace: https://dbc-c2ce80d3-dded.cloud.databricks.com
+2. Click your user profile (top-right) → **Settings**
+3. Navigate to: **Developer** → **Access tokens**
+4. Click **"Manage"** → **"Generate new token"**
+5. Configure:
+   - Comment: `GitHub Actions CI/CD for data-quest`
+   - Lifetime: `90 days` (or as needed)
+6. Click **"Generate"**
+7. **⚠️ COPY THE TOKEN IMMEDIATELY** - you won't see it again!
+
+#### Step 2: Add Secrets to GitHub
+
+1. Go to your repository: https://github.com/suleimankh/data-quest
+2. Click **Settings** (top tab)
+3. Left sidebar: **Secrets and variables** → **Actions**
+4. Click **"New repository secret"**
+5. Add **FIRST** secret:
+   - Name: `DATABRICKS_HOST`
+   - Value: `https://dbc-c2ce80d3-dded.cloud.databricks.com`
+6. Add **SECOND** secret:
+   - Name: `DATABRICKS_TOKEN`
+   - Value: `<your token from Step 1>`
+
+#### Step 3: Verify
+
+After adding secrets, push a commit or re-run the failed GitHub Action.
+
+**For detailed instructions with screenshots, see:** `GITHUB_SECRETS_SETUP.md`
 
 ## Commands Reference
 
@@ -153,6 +184,19 @@ databricks pipelines get <pipeline-id>
 ```
 
 ## Troubleshooting
+
+### GitHub Actions: Authentication Error
+
+**Error:**
+```
+Error: failed during request visitor: default auth: cannot configure default credentials
+env:
+  DATABRICKS_HOST: 
+  DATABRICKS_TOKEN: 
+```
+
+**Solution:**
+GitHub Secrets are not configured. Follow the **"Required GitHub Secrets Setup"** section above or see `GITHUB_SECRETS_SETUP.md` for detailed instructions.
 
 ### Bundle deployment fails
 ```bash
