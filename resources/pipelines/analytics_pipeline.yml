@@ -1,0 +1,20 @@
+resources:
+  pipelines:
+    analytics_pipeline:
+      name: analytics_pipeline_${bundle.target}
+      target: ${var.catalog_prefix}rearc_analytics.population_analytics
+      
+      photon: true
+      serverless: true
+      channel: CURRENT
+      
+      libraries:
+        - notebook:
+            path: ${var.git_source_path}/analytics_pipeline/transformations
+      
+      configuration:
+        pipeline.runAsUser: ${workspace.current_user.userName}
+      
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

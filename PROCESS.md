@@ -907,11 +907,19 @@ Alerts should surface meaningful failures and data-quality changes proactively r
 
 ## CI/CD and Deployment
 
-For the assessment, the pipelines and supporting resources were configured directly in Databricks.
+The pipelines and supporting resources are now managed using **Declarative Automation Bundles (DABs)**, which provide version-controlled infrastructure configuration and CI/CD deployment.
 
-For production, I would version-control both code and infrastructure configuration and deploy through CI/CD.
+The DAB configuration includes:
 
-**Databricks Asset Bundles (DABs)** would be a natural next step for consistently deploying pipelines, workflows, permissions, and related resources across environments such as:
+```text
+✓ databricks.yml with dev/prod targets
+✓ Pipeline resources (BLS, DataUSA, Analytics)
+✓ Orchestration job configuration
+✓ GitHub Actions CI/CD workflow
+✓ Environment separation via targets
+```
+
+This enables consistent deployment across environments:
 
 ```text
 Development
@@ -976,14 +984,17 @@ Bonus
 ✓ AI/BI Dashboard
 ✓ Genie Agent
 ✓ Read-only Unity Catalog access
+✓ Declarative Automation Bundles (DABs)
+  ✓ Bundle configuration with dev/prod targets
+  ✓ Pipeline and job resources
+  ✓ CI/CD workflow automation
 ```
 
 I plan to continue improving the project where the additional work provides meaningful engineering value.
 
 My next areas of exploration are:
 
-- Packaging and deploying the pipelines, workflow, permissions, and supporting resources using **Databricks Asset Bundles (DABs)** rather than relying on manual workspace configuration.
-- Evaluating additional production-readiness improvements where they provide meaningful value, particularly around observability, deployment automation, stronger data contracts, and operational resiliency.
+- Evaluating additional production-readiness improvements where they provide meaningful value, particularly around observability, monitoring, stronger data contracts, and operational resiliency.
 
 I am intentionally treating these as incremental enhancements on top of the completed solution rather than making optional work a dependency for completing the assessment.
 

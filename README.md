@@ -39,8 +39,13 @@ The implementation includes:
 ✓ 2 — Unity Catalog access controls
       ✓ Read-only analyst access to Gold
 
-⏳ 3 — Databricks Asset Bundles
-      Currently in progress
+✓ 3 — Declarative Automation Bundles (DABs)
+      ✓ Bundle configuration (databricks.yml)
+      ✓ Pipeline resources (BLS, DataUSA, Analytics)
+      ✓ Orchestration job
+      ✓ CI/CD workflow (GitHub Actions)
+      ✓ Dev/Prod targets
+      → See DAB_README.md for detailed setup and deployment instructions
 
 4 — Additional production-readiness improvements
     ✓ Databricks Workflow orchestration
@@ -52,17 +57,31 @@ The implementation includes:
 
 ``` text
 .
+├── databricks.yml
+│   └── Main DAB configuration (dev/prod targets)
+│
+├── resources/
+│   ├── pipelines/
+│   │   ├── bls_pipeline.yml
+│   │   ├── datausa_pipeline.yml
+│   │   └── analytics_pipeline.yml
+│   └── jobs/
+│       └── orchestration_job.yml
+│
 ├── source_ingestion/
 │   └── Source extraction and raw landing logic
 │
 ├── datausa_pipeline/
-│   └── Data USA Bronze and Silver pipeline
+│   └── transformations/
+│       └── Data USA Bronze and Silver pipeline
 │
 ├── bls_pipeline/
-│   └── BLS Bronze and Silver pipeline
+│   └── transformations/
+│       └── BLS Bronze and Silver pipeline
 │
 ├── analytics_pipeline/
-│   └── Gold analytical pipeline
+│   └── transformations/
+│       └── Gold analytical pipeline
 │
 ├── alternative_spark_sql/
 │   └── Spark SQL alternatives to the PySpark implementation
@@ -74,8 +93,13 @@ The implementation includes:
 │   ├── Pipeline and catalog screenshots
 │   └── Bonus dashboard, Genie, and access-control screenshots
 │
+├── .github/
+│   └── workflows/
+│       └── deploy.yml (CI/CD automation)
+│
 ├── PROCESS.md
-└── README.md
+├── README.md
+└── DAB_README.md
 ```
 
 ## Pipeline Flow
@@ -124,3 +148,12 @@ process, including:
 -   Data quality and validation
 -   Production considerations
 -   Retrospective
+
+See **[DAB_README.md](DAB_README.md)** for Declarative Automation Bundles (DABs) setup and deployment:
+
+-   DAB configuration and structure
+-   Development and production environments
+-   Deployment instructions
+-   CI/CD workflow setup
+-   Bundle management commands
+-   Troubleshooting guide

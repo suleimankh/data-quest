@@ -1,0 +1,46 @@
+resources:
+  jobs:
+    population_orchestration:
+      name: population_orchestration_pipeline_${bundle.target}
+      
+      max_concurrent_runs: 1
+      
+      email_notifications:
+        no_alert_for_skipped_runs: false
+        on_failure:
+          - suleiman_khader@hotmail.com
+      
+      webhook_notifications: {}
+      
+      timeout_seconds: 0
+      
+      queue:
+        enabled: true
+      
+      tasks:
+        - task_key: bls_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.bls_pipeline.id}
+          timeout_seconds: 0
+          email_notifications: {}
+          
+        - task_key: datausa_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.datausa_pipeline.id}
+          timeout_seconds: 0
+          email_notifications: {}
+          
+        - task_key: analytics_pipeline
+          depends_on:
+            - task_key: bls_pipeline
+            - task_key: datausa_pipeline
+          pipeline_task:
+            pipeline_id: ${resources.pipelines.analytics_pipeline.id}
+          timeout_seconds: 0
+          email_notifications: {}
+      
+      permissions:
+        - level: CAN_VIEW
+          group_name: users
+        - level: CAN_MANAGE_RUN
+          user_name: suleiman_khader@hotmail.com

@@ -1,0 +1,32 @@
+bundle:
+  name: population_orchestration
+
+include:
+  - resources/**/*.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-c2ce80d3-dded.cloud.databricks.com
+    variables:
+      catalog_prefix: dev_
+      git_source_path: /Workspace/Repos/development/data-quest
+      
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-c2ce80d3-dded.cloud.databricks.com
+    variables:
+      catalog_prefix: ""
+      git_source_path: /Workspace/Repos/Production/data-quest
+    run_as:
+      user_name: suleiman_khader@hotmail.com
+
+variables:
+  catalog_prefix:
+    description: Prefix for catalog names in different environments
+    default: ""
+  git_source_path:
+    description: Path to Git repo in workspace

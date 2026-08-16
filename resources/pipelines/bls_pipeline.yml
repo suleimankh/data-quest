@@ -1,0 +1,20 @@
+resources:
+  pipelines:
+    bls_pipeline:
+      name: bls_pipeline_${bundle.target}
+      target: ${var.catalog_prefix}rearc.bls
+      
+      photon: true
+      serverless: true
+      channel: CURRENT
+      
+      libraries:
+        - notebook:
+            path: ${var.git_source_path}/bls_pipeline/transformations
+      
+      configuration:
+        pipeline.runAsUser: ${workspace.current_user.userName}
+      
+      permissions:
+        - level: CAN_VIEW
+          group_name: users

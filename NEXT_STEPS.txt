@@ -1,0 +1,144 @@
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         NEXT STEPS - QUICK GUIDE                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+STEP 1: Commit and Push to GitHub
+═══════════════════════════════════════════════════════════════════════════════
+
+Run these commands in the terminal or Git UI:
+
+    cd /Workspace/Repos/Production/data-quest
+    
+    git add databricks.yml .gitignore resources/ .github/ DAB_README.md
+    
+    git commit -m "Add Declarative Automation Bundle (DAB) configuration
+    
+    - Added databricks.yml with dev/prod targets
+    - Created pipeline resources for BLS, DataUSA, and Analytics
+    - Created orchestration job configuration
+    - Added GitHub Actions CI/CD workflow
+    - Added comprehensive documentation"
+    
+    git push origin main
+
+
+STEP 2: Set Up Development Environment (Optional)
+═══════════════════════════════════════════════════════════════════════════════
+
+In Databricks UI:
+  1. Go to Repos → Add Repo
+  2. URL: https://github.com/suleimankh/data-quest
+  3. Path: /Workspace/Repos/development/data-quest
+  4. Branch: develop
+  5. Click Create
+
+
+STEP 3: Validate the DAB Configuration
+═══════════════════════════════════════════════════════════════════════════════
+
+From your local machine (after installing Databricks CLI):
+
+    # Authenticate
+    databricks auth login --host https://dbc-c2ce80d3-dded.cloud.databricks.com
+    
+    # Validate production configuration
+    cd /path/to/local/data-quest
+    databricks bundle validate -t prod
+
+
+STEP 4: Deploy to Production
+═══════════════════════════════════════════════════════════════════════════════
+
+    databricks bundle deploy -t prod
+
+This will create:
+  ✓ bls_pipeline_prod → rearc.bls
+  ✓ datausa_pipeline_prod → rearc.datausa  
+  ✓ analytics_pipeline_prod → rearc_analytics.population_analytics
+  ✓ population_orchestration_pipeline_prod (orchestration job)
+
+
+STEP 5: Run the Orchestration Job
+═══════════════════════════════════════════════════════════════════════════════
+
+    databricks bundle run population_orchestration -t prod
+
+Or in Databricks UI:
+  Workflows → Jobs → population_orchestration_pipeline_prod → Run now
+
+
+STEP 6 (Optional): Set Up GitHub Actions CI/CD
+═══════════════════════════════════════════════════════════════════════════════
+
+1. Generate Databricks token:
+   Databricks UI → User Settings → Developer → Access tokens
+
+2. Add GitHub secrets:
+   GitHub repo → Settings → Secrets and variables → Actions
+   
+   Add:
+   - DATABRICKS_HOST = https://dbc-c2ce80d3-dded.cloud.databricks.com
+   - DATABRICKS_TOKEN = [your token]
+
+3. Future pushes to 'main' will auto-deploy to production
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            FILES CREATED                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Location: /Workspace/Repos/Production/data-quest
+
+✓ databricks.yml                          Main DAB config
+✓ resources/pipelines/bls_pipeline.yml    BLS pipeline definition
+✓ resources/pipelines/datausa_pipeline.yml DataUSA pipeline definition  
+✓ resources/pipelines/analytics_pipeline.yml Analytics pipeline definition
+✓ resources/jobs/orchestration_job.yml    Orchestration job
+✓ .gitignore                              Git ignore patterns
+✓ .github/workflows/deploy.yml            GitHub Actions CI/CD
+✓ DAB_README.md                           Comprehensive documentation
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          IMPORTANT NOTES                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+⚠️  Your existing pipelines and job remain untouched
+    - Current job ID: 530729899332041 will continue to work
+    - DAB will create NEW resources with _prod suffix
+    - You can safely test DAB deployment
+
+✓  Pipeline transformations use existing folders
+    - bls_pipeline/transformations
+    - datausa_pipeline/transformations
+    - analytics_pipeline/transformations
+    - No need to move files!
+
+✓  Environment separation ready
+    - Production: /Workspace/Repos/Production/data-quest
+    - Development: /Workspace/Repos/development/data-quest (to be created)
+
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      TROUBLESHOOTING                                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+If bundle validation fails:
+  - Ensure you're in the repo root directory
+  - Check YAML syntax is valid (already validated ✓)
+  - Verify Databricks CLI is authenticated
+
+If deployment fails:
+  - Check Unity Catalog permissions for rearc and rearc_analytics catalogs
+  - Verify schemas exist: bls, datausa, population_analytics
+  - Check user has permission to create pipelines and jobs
+
+If pipeline not found:
+  - Verify transformation files exist in pipeline folders
+  - Check repo is at correct path: /Workspace/Repos/Production/data-quest
+
+
+═══════════════════════════════════════════════════════════════════════════════
+                         DAB SETUP COMPLETE! 🎉
+═══════════════════════════════════════════════════════════════════════════════
