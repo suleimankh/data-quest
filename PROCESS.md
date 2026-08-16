@@ -929,6 +929,74 @@ Test / QA
 Production
 ```
 
+### Project-Scoped Bundles and Selective Deployment
+
+For this Quest, I kept the repository and Databricks Asset Bundle structure simple because the Data USA pipeline, BLS pipeline, Analytics pipeline, and orchestration workflow are all part of one logical deployable project.
+
+Conceptually, I think of the project as:
+
+```text
+projects/
+└── population_project/
+    ├── datausa_pipeline/
+    ├── bls_pipeline/
+    ├── analytics_pipeline/
+    ├── orchestration/
+    └── databricks.yml
+```
+
+These components are intentionally coupled and should move through environments together.
+
+For a larger team or company managing many independent Databricks projects in the same repository, I would scale this pattern by placing each logical project under a shared `projects/` directory and giving each project its own `databricks.yml`.
+
+For example:
+
+```text
+projects/
+├── population_project/
+│   ├── datausa_pipeline/
+│   ├── bls_pipeline/
+│   ├── analytics_pipeline/
+│   ├── orchestration/
+│   └── databricks.yml
+│
+├── customer_360_project/
+│   ├── ...
+│   └── databricks.yml
+│
+└── finance_reporting_project/
+    ├── ...
+    └── databricks.yml
+```
+
+The GitHub Actions workflow would then detect which project folders changed and validate/deploy only those projects.
+
+Conceptually:
+
+```text
+Git change
+    ↓
+Detect changed project folders
+    ↓
+population_project changed?
+    → validate + deploy
+
+customer_360_project changed?
+    → validate + deploy
+
+finance_reporting_project changed?
+    → validate + deploy
+
+unchanged project
+    → skip
+```
+
+This reduces deployment blast radius, avoids redeploying unrelated workloads, shortens CI/CD execution time, and gives independent projects clearer ownership and lifecycle boundaries.
+
+For this Quest, I intentionally did not implement that structure because there is only one logical Databricks project and the extra project-discovery/change-detection logic would be unnecessary complexity.
+
+If the repository later grew to host multiple independent Databricks projects, I would strongly consider this project-scoped bundle and selective-deployment pattern.
+
 ---
 
 # Retrospective

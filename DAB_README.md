@@ -185,6 +185,52 @@ databricks pipelines get <pipeline-id>
 
 ## Troubleshooting
 
+### Table Ownership Conflict
+
+**Error:**
+```
+Table `catalog`.`schema`.`table_name` is already managed by pipeline <pipeline-id>.
+A table can only be owned by one pipeline.
+Please rename the table to proceed.
+```
+
+**Cause:**
+The tables are owned by an existing pipeline (often a manual pipeline being replaced by DAB).
+
+**Solution:**
+Delete the old pipeline(s) to release table ownership:
+
+```bash
+# List existing pipelines to find the old ones
+databricks pipelines list --output JSON
+
+# Delete the old manual pipelines
+databricks pipelines delete <old-pipeline-id>
+```
+
+Or via UI:
+1. Go to: **Workflows** → **Pipelines**
+2. Find the old pipeline (e.g., `bls_pipeline` without `_prod` suffix)
+3. Click **⋮** → **Delete pipeline**
+
+**Important:**
+- Deleting a pipeline releases table ownership
+- Tables and data remain in Unity Catalog (not deleted)
+- Only the pipeline definition is removed
+- After deletion, re-run your DAB job to let the new pipelines claim ownership
+
+**Example:**
+If migrating from manual pipelines to DAB:
+```bash
+# Old manual pipelines
+databricks pipelines delete e2806fc3-2587-452b-b743-7345f9db4aff  # bls_pipeline
+databricks pipelines delete 92a75e0e-9655-4369-afbc-84b2a8323b98  # datausa_pipeline
+databricks pipelines delete 53c5e066-9922-4977-9294-5123fc2d8660  # analytics_pipeline
+
+# Then re-run DAB job
+databricks bundle run population_orchestration -t prod
+```
+
 ### GitHub Actions: Authentication Error
 
 **Error:**
