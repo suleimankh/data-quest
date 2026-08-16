@@ -3,6 +3,7 @@ resources:
     analytics_pipeline:
       name: analytics_pipeline_${bundle.target}
       target: ${var.catalog_prefix}rearc_analytics.population_analytics
+      catalog: ${var.catalog_prefix}rearc_analytics
       
       photon: true
       serverless: true
